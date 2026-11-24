@@ -15,8 +15,10 @@ machine off. Not a faithful Smoothieware: just enough G-code for jogging, zeroin
   * Lines: G0/G1 (G90/G91, F), G4, G10 L20 P0, G92, G53, $H, $X, M220 S, M3/M5 S, M6 T, M999, anything
     else just gets "ok". Replies are 0x90 "ok\\r\\n".
   * Motion runs in real time at the commanded feed (G0 = axis max rate) x feed override, with a
-    32-block planner queue; soft limits X -207..-1, Y -206..-1, Z -102..-1 once homed;
-    $H ends at MPos -1 on X, Y and Z, like the real Z1.
+    32-block planner queue; soft limits X -207..-1, Y -206..-1, Z -102..-1 once homed (--model air:
+    the Carvera Air's X -302, Y -212, Z -121); $H ends at MPos -1 on X, Y and Z, like the real Z1.
+  * M211 answers like the firmware ("Soft endstops are Enabled,X min = -207.000,X max = -1.000,...");
+    M211 S0/S1 turns them off/on. --no-m211 makes it a plain "ok" (firmware without it).
 """
 from __future__ import annotations
 
@@ -37,6 +39,8 @@ from z1sim_probe import ProbeSim
 AXES = "XYZA"
 MAX_RATE = {"X": 3000.0, "Y": 3000.0, "Z": 1000.0, "A": 1800.0}   # mm/min (deg/min for A)
 SOFT = {"X": (-207.0, -1.0), "Y": (-206.0, -1.0), "Z": (-102.0, -1.0)}
+# Carvera Air: soft_endstop.*_min from the community firmware's config2.default (max -1 is in Robot.cpp).
+SOFT_AIR = {"X": (-302.0, -1.0), "Y": (-212.0, -1.0), "Z": (-121.0, -1.0)}
 QUEUE_MAX = 32
 QUEUE_DELAY_S = 0.100   # Smoothie conveyor queue_delay_time_ms default: a queue that was empty waits this long
 
@@ -94,6 +98,9 @@ class Machine(ProbeSim):
         self.heat = 0.0
         self.spindle_max = 75.0
         self.temp_at = time.monotonic()
+        self.soft = dict(SOFT)                    # --model air: SOFT_AIR
+        self.soft_enabled = True                  # M211 S0/S1
+        self.m211 = True                          # --no-m211: firmware without the M211 report
         self.halt_code = None
 
     # --- G-code -------------------------------------------------------------------------
@@ -107,7 +114,9 @@ class Machine(ProbeSim):
             if t.startswith("CONFIG-GET"):
                 key = text.split()[-1]
                 v = {"coordinate.anchor1_x": "-190.69", "coordinate.anchor1_y": "-194.58",
-                     "wifi.machine_name": self.name, "temperature_control.spindle.max_temp": f"{self.spindle_max:.1f}"}.get(key)
+                     "wifi.machine_name": self.name, "temperature_control.spindle.max_temp": f"{self.spindle_max:.1f}",
+                     "soft_endstop.enable": "true" if self.soft_enabled else "false",
+                     **{f"soft_endstop.{a.lower()}_min": f"{self.soft[a][0]:.1f}" for a in "XYZ"}}.get(key)
                 return [f"sd: {key} is set to {v}\r\n" if v else f"sd: {key} is not in config\r\n", "ok\r\n"]
             if t.startswith("BUFFER"):
                 self.buffered = text.strip()[6:].strip()
@@ -131,6 +140,18 @@ class Machine(ProbeSim):
                 return ["".join(" ".join(f"{v:.4f}" for v in row) + " \n" for row in self.mesh), "ok\r\n"]
             if t.startswith("M495"):
                 return self.m495(t)
+            mm = re.fullmatch(r"M211(?:S([01]))?", t)
+            if mm and self.m211:
+                if mm.group(1) is not None:
+                    self.soft_enabled = mm.group(1) == "1"
+                    return ["ok\r\n"]
+                parts = [f"Soft endstops are {'Enabled' if self.soft_enabled else 'Disabled'}"]
+                for i, a in enumerate("XYZ"):
+                    lo, hi = self.soft[a]
+                    parts += [f"{a} min = {lo:.3f}", f"{a} max = {hi:.3f}"]
+                    if not self.homed:
+                        parts.append(f"{a} axis is not homed")
+                return [",".join(parts) + "\n", "ok\r\n"]
             if t in ("$X", "M999"):
                 if self.state == "Alarm":
                     self.state = "Idle"; self.halt_code = None
@@ -221,9 +242,9 @@ class Machine(ProbeSim):
                             tgt[i] = vals[ax] + self.wco[i]
                         else:
                             tgt[i] = start[i] + vals[ax]
-                if self.homed:
+                if self.homed and self.soft_enabled:
                     for i, ax in enumerate("XYZ"):
-                        lo, hi = SOFT[ax]
+                        lo, hi = self.soft[ax]
                         if not (lo - 1e-6 <= tgt[i] <= hi + 1e-6):
                             self._alarm(f"Soft Endstop {ax} was exceeded - reset or $X or M999 required")
                             return ["error:Soft Endstop\r\n"]
@@ -417,7 +438,7 @@ class Machine(ProbeSim):
                 for i, ax in enumerate("XYZ"):
                     # The real Z1 homes to MPos -1.000 (the soft max); 0 would be past it,
                     # so the next move on any axis would trip the soft limit.
-                    home = SOFT[ax][1]
+                    home = self.soft[ax][1]
                     step = 3000 / 60 * 0.01
                     if self.mpos[i] != home:
                         d = home - self.mpos[i]
@@ -860,6 +881,8 @@ def broadcaster(name, port):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", default="Makera_Z1P_SIM")
+    ap.add_argument("--model", choices=["z1", "air"], default="z1", help="air: the Carvera Air's soft limits")
+    ap.add_argument("--no-m211", action="store_true", help="M211 just answers ok (firmware without the report)")
     ap.add_argument("--port", type=int, default=P.TCP_PORT)
     ap.add_argument("--latency-ms", type=float, default=0)
     ap.add_argument("--no-broadcast", action="store_true")
@@ -880,6 +903,9 @@ def main():
     m.sd = a.sd
     m.speed = a.speed
     m.heat = a.heat; m.spindle_max = a.spindle_max; m.spindle_temp = a.spindle_temp
+    if a.model == "air":
+        m.soft = dict(SOFT_AIR)
+    m.m211 = not a.no_m211
     if a.boot_mesh == "empty":
         m.ghost_mesh = -1.351
     elif a.boot_mesh == "real":

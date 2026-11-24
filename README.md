@@ -95,7 +95,8 @@ tap a jog pad, run your own hotkeys, and see live positions, all over Wi-Fi with
   hotkeys. Turn the tablet sideways for a side-by-side layout with everything on screen at once:
   readout, hotkeys and the stop buttons on the left, steps and a big dial or jog pad on the right.
 - **Soft-limit protection**: jogs are clamped and typed moves refused before they reach the
-  machine's soft limits, so they don't trip an alarm.
+  machine's soft limits, so they don't trip an alarm. The limits are read from the machine when it
+  connects, so a Carvera Air gets its full travel.
 - **Console**: every command sent and every reply, with time stamps, plus a box to type commands.
 - **Machine name**: shows at the top even when you connect by IP address (read from the machine).
   Settings can hide its serial number, for screen recordings.

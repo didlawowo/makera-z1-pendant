@@ -13,6 +13,7 @@ import com.z1pendant.link.ConnState
 import com.z1pendant.link.MachineName
 import com.z1pendant.link.MachineStatus
 import com.z1pendant.link.MachineTarget
+import com.z1pendant.link.SoftLimits
 import com.z1pendant.link.makera.Discovery
 import com.z1pendant.link.makera.MakeraLink
 import com.z1pendant.platform.PLog
@@ -185,6 +186,12 @@ class AppViewModel(private val platform: Platform) : ViewModel() {
     val temps = MutableStateFlow<com.z1pendant.temp.TempView?>(null)
     /** The Z1's limits (it halts above them): the SD config's, else the built-in config's. */
     val tempLimits = MutableStateFlow(com.z1pendant.temp.TempLimits.DEFAULT)
+    /**
+     * The machine's soft limits, read on connect (M211, else the config's mins; see SoftLimits), so a
+     * Carvera Air isn't held to a Z1's travel. The jog clamp, typed moves and Run's bed use them.
+     */
+    val softLimits = MutableStateFlow(SoftLimits.Z1)
+    private var softLimitsJob: Job? = null
     /** During a job, the reading that's within 5 °C of its limit (banner, buzz, pulsing line). */
     val tempWarn = MutableStateFlow<com.z1pendant.temp.TempWarn?>(null)
     /** The last status before the machine went into Alarm: the temperatures and spindle at that moment. */
@@ -378,7 +385,8 @@ class AppViewModel(private val platform: Platform) : ViewModel() {
 
     /** Running a job: origin, laser probe checks, assist modes, start (the Run flow). */
     val run = com.z1pendant.run.RunController(link, viewModelScope, prefs, probe,
-        onSend = { ownMotion.sent(nowMs()) }, log = { log(it) })
+        onSend = { ownMotion.sent(nowMs()) }, log = { log(it) },
+        bed = { softLimits.value.bed ?: com.z1pendant.link.Bed.Z1 })
     /** Files is open to pick a job to run (the Run tile). */
     val runPick = MutableStateFlow(false)
 
@@ -438,15 +446,50 @@ class AppViewModel(private val platform: Platform) : ViewModel() {
                 val resumed = c == ConnState.Connected && prev == ConnState.Stalled
                 prev = c
                 if (c != ConnState.Connected) jog.cancelPending()
+                if (c != ConnState.Connected && c != ConnState.Stalled) softLimitsJob?.cancel()
                 if (c != ConnState.Connected && c != ConnState.Stalled) { forgetJob(); meshPrompt.value = null }
-                if (c == ConnState.Connected) { if (!resumed) launch { checkMeshOnConnect(); readTempLimits() }; lookUpName() }
+                if (c == ConnState.Connected) {
+                    if (!resumed) {
+                        launch { checkMeshOnConnect(); readTempLimits() }
+                        softLimitsJob?.cancel(); softLimitsJob = launch { readSoftLimits() }
+                    }
+                    lookUpName()
+                }
             }
         }
         target.value?.let { if (prefs.getBoolean("autoConnect", true)) link.connect(it) }
     }
 
     private fun applyJogConfig() {
-        jog.config = jog.config.copy(tickMs = tickMs.value, softLimitClamp = softClamp.value)
+        val sl = softLimits.value
+        val limits = jog.config.limits.mapValues { (a, l) ->
+            if (a in "XYZ") l.copy(softMin = sl.min[a], softMax = sl.max[a]) else l
+        }
+        jog.config = jog.config.copy(tickMs = tickMs.value, softLimitClamp = softClamp.value && sl.enabled, limits = limits)
+    }
+
+    /**
+     * Asks the machine its soft limits once it's Idle (the firmware turns G-code away while it's
+     * alarmed, and a job may be running when we connect). M211 first; no report, then the config's
+     * mins; nothing at all, the Z1's.
+     */
+    private suspend fun readSoftLimits() {
+        link.status.first { it != null && it.job == null && it.isIdle }
+        val got = kotlinx.coroutines.withTimeoutOrNull(3000) {
+            kotlinx.coroutines.coroutineScope {
+                val answer = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                    link.messages.first { SoftLimits.parse(it) != null }
+                }
+                link.sendLine(SoftLimits.COMMAND)
+                SoftLimits.parse(answer.await())
+            }
+        } ?: SoftLimits.fromConfig(
+            run.readConfig("soft_endstop.x_min"), run.readConfig("soft_endstop.y_min"),
+            run.readConfig("soft_endstop.z_min"), null,
+        )
+        softLimits.value = got
+        applyJogConfig()
+        log("· soft limits: ${got.describe()}")
     }
 
     // ---- connection -----------------------------------------------------------------------
@@ -651,7 +694,7 @@ class AppViewModel(private val platform: Platform) : ViewModel() {
         val endM = if (relative) m + value else value + (m - w)
         val endW = endM - (m - w)
         val lim = jog.config.limits[axis]
-        if (softClamp.value && st.homed != false && lim != null) {
+        if (softClamp.value && softLimits.value.enabled && st.homed != false && lim != null) {
             val lo = lim.softMin; val hi = lim.softMax
             if ((lo != null && endM < lo - 1e-6) || (hi != null && endM > hi + 1e-6)) {
                 fun f(d: Double?) = d?.let { Fmt.fixed(it, 3) } ?: "…"

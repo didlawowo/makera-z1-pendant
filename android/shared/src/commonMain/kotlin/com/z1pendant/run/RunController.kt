@@ -22,9 +22,6 @@ import kotlinx.coroutines.withTimeoutOrNull
  * start the job the way Makera Studio does. Nothing here moves the machine except Scan now, the
  * laser probe check (a tool change or a setter calibration) and Start, each after a tap.
  */
-/** The Z1's bed: the X/Y soft limits, machine coordinates. */
-const val BED_X0 = -207.0; const val BED_X1 = -1.0
-const val BED_Y0 = -206.0; const val BED_Y1 = -1.0
 /** The anchor bracket's arms (the machine's `coordinate.anchor_width` / `anchor_length`, config.txt). */
 const val ANCHOR_WIDTH = 15.0; const val ANCHOR_LENGTH = 100.0
 
@@ -36,6 +33,8 @@ class RunController(
     /** Something that may move the machine was sent (own-motion tracking). */
     private val onSend: () -> Unit = {},
     private val log: (String) -> Unit = {},
+    /** The machine's X/Y travel (its soft limits as read on connect; a Z1's until then). */
+    val bed: () -> com.z1pendant.link.Bed = { com.z1pendant.link.Bed.Z1 },
 ) {
     sealed class Load {
         data class Loading(val done: Int, val total: Int) : Load()
@@ -210,7 +209,8 @@ class RunController(
     fun offBed(st: MachineStatus?): Boolean? {
         val e = extents ?: return null
         val (x0, y0) = plannedOrigin(st) ?: return null
-        return x0 + e.minX < BED_X0 - 0.01 || x0 + e.maxX > BED_X1 + 0.01 || y0 + e.minY < BED_Y0 - 0.01 || y0 + e.maxY > BED_Y1 + 0.01
+        val b = bed()
+        return x0 + e.minX < b.x0 - 0.01 || x0 + e.maxX > b.x1 + 0.01 || y0 + e.minY < b.y0 - 0.01 || y0 + e.maxY > b.y1 + 0.01
     }
 
     private fun ready(st: MachineStatus?): String? = when {

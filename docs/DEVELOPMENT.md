@@ -34,7 +34,9 @@ For installing and using the app, see the [README](../README.md).
   at once), `send`, `jog`. Anything that can move the machine needs `--motion`.
 - `python/z1sim.py`: machine simulator: discovery broadcast, TCP 2222, G0/G1/G90/G91/G10 L20/G53/$H/$X,
   M220, M821/M822, M851/M852, `diagnose`, hold/resume/halt, a 32-block queue with the firmware's 100 ms
-  start delay, and soft limits X −207..−1, Y −206..−1, Z −102..−1 that alarm like the real machine.
+  start delay, and soft limits X −207..−1, Y −206..−1, Z −102..−1 that alarm like the real machine
+  (`--model air`: the Carvera Air's X −302, Y −212, Z −121). `M211` reports them like the firmware;
+  `--no-m211` stands in for firmware without the report.
 - `python/z1sim_probe.py`: probing for the simulator: a block and a pocket to probe, G38.2/G38.6 with
   `[PRB:]`, Makera's M480.1–.10 routines, M491 and `M6 T9999` with the tool-change wait (M490.2
   continues) and the setter calibration. `simprobe dead` makes the probe never trigger;
@@ -155,6 +157,16 @@ The **lead** (commanded but not yet travelled, dead-reckoned from the last statu
 is capped at `max(min(5 clicks, 5 mm), v²/2a + v·tick + vHand·(0.12 + 0.1) + 1 click)`. Clicks beyond
 that are dropped (one thud vibration per 150 ms at most), so when input stops or the link drops, the
 axis stops within that distance. Moves are clamped to the soft limits while the machine is homed.
+
+**Soft limits come from the machine** (`link/SoftLimits.kt`), so a Carvera Air (X −302, Y −212, Z −121,
+the community firmware's `config2.default`) isn't held to a Z1's travel. On connect, once the machine is
+Idle with no job, the app sends `M211`; the firmware (stock Z1 and community `Robot.cpp`) answers
+`Soft endstops are Enabled,X min = -207.000,X max = -1.000,...`. The mins are the config's
+`soft_endstop.*_min`; the maxes are fixed at −1 in the firmware code. No report within 3 s: the mins from
+`config-get sd soft_endstop.*_min`, max −1; nothing at all: the Z1's. The jog clamp, typed moves, Run's
+bed map and its "runs past the bed" check all use them; with soft limits off in the firmware the app
+doesn't clamp either. Not used: the community firmware's `soft_endstop.rotary_y_min` (a tighter Y min with
+the 4th axis fitted), which `M211` doesn't report and the stock Z1 firmware doesn't have.
 
 A **jog session** starts from the machine position in a status that arrived *after* the first click
 (never an older reading, which could be stale after a Wi-Fi gap), taken while the machine is
@@ -360,4 +372,6 @@ skipped queue delay doesn't show. `$J F0.05` ran at about 60 mm/min, so its rate
   Scan now outside a job, the "Done ATC" end of a direct M495, the `|O:` format, and `M375.1`'s output.
 - The file download on the real machine (protocol from the Makera app + Wi-Fi board decompiles; run on the simulator).
 - Whether the stock firmware takes `M223` with two decimals and what its spindle "target" field means.
-- Y/Z upper soft limits (assumed −1 like X).
+- Y/Z upper soft limits (assumed −1 like X; the community `Robot.cpp` sets all three to −1).
+- `M211`'s report on a real Z1 and a real Carvera Air (the format strings are in the stock Z1 dump; seen
+  only on the simulator so far).

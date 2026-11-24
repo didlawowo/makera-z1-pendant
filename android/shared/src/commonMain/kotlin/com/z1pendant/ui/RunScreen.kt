@@ -42,10 +42,6 @@ import com.z1pendant.run.RunController.LaserPhase
 import com.z1pendant.run.RunController.ScanPhase
 import com.z1pendant.run.RunSetup
 import com.z1pendant.util.Fmt
-import com.z1pendant.run.BED_X0
-import com.z1pendant.run.BED_X1
-import com.z1pendant.run.BED_Y0
-import com.z1pendant.run.BED_Y1
 import com.z1pendant.run.ANCHOR_LENGTH
 import com.z1pendant.run.ANCHOR_WIDTH
 import androidx.compose.ui.graphics.Outline
@@ -179,6 +175,9 @@ private fun BedMap(vm: AppViewModel, st: MachineStatus?) {
     val anchor by r.anchor.collectAsState()
     val scan by r.scan.collectAsState()
     val step by r.step.collectAsState()
+    val limits by vm.softLimits.collectAsState()
+    val bed = limits.bed ?: com.z1pendant.link.Bed.Z1          // the machine's travel (its soft limits)
+    val BED_X0 = bed.x0; val BED_X1 = bed.x1; val BED_Y0 = bed.y0; val BED_Y1 = bed.y1
     val e = (load as? RunController.Load.Ready)?.extents
     val o = r.plannedOrigin(st)
     Row(Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(10.dp)).background(MapBg)) {
