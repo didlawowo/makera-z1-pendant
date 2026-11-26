@@ -64,8 +64,16 @@ fun stepLabel(s: Double) = when {
 
 /** True when the window is at least 600 dp wide (iPad, Android tablet): bigger readout, smaller dial, 5×3 hotkeys. */
 val LocalWide = androidx.compose.runtime.staticCompositionLocalOf { false }
-/** True on a landscape tablet (at least 840 dp wide and wider than tall): side-by-side layout. */
+/** True on a landscape tablet (see [sideBySideLayout]): side-by-side layout. */
 val LocalLandscape = androidx.compose.runtime.staticCompositionLocalOf { false }
+
+/**
+ * Side-by-side layout: wide enough, wider than tall, and tall enough for the left column
+ * (readout + Feed + Spindle + Hold/Resume/Stop needs about 500 dp; below that the readout
+ * was clipped and only the X row stayed visible).
+ */
+fun sideBySideLayout(widthDp: Float, heightDp: Float): Boolean =
+    widthDp >= 840f && widthDp > heightDp && heightDp >= 500f
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
