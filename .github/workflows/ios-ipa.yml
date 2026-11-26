@@ -1,9 +1,16 @@
-# Builds the iPhone/iPad app on GitHub's Macs and attaches it to the release as an unsigned .ipa,
+# Builds the iPhone/iPad app on the project's own Mac (an Apple Silicon M1 registered as a
+# self-hosted runner with the label makera-z1-pendant-macos) and attaches it to the release as an unsigned .ipa,
 # so people without a Mac can install it from Windows with Sideloadly or AltStore (they sign it
 # with their own Apple ID; see "iPhone without a Mac" in the README).
 #
 # Runs by itself when a release is published. To add the .ipa to an existing release:
 #   gh workflow run ios-ipa.yml -f tag=v0.1.8
+#
+# This workflow never runs for a pull request. A fork's pull request could still bring its own
+# workflow aimed at this runner's labels, so the repository requires approval before any external
+# contributor's workflows run (Settings > Actions > General). The runner runs as a macOS user of
+# its own, with Xcode, the GitHub CLI (brew install gh) and zip on its PATH, and the Mac stays
+# awake on AC power (sudo pmset -c sleep 0), or the job queues.
 name: iPhone app (.ipa)
 
 on:
@@ -20,10 +27,13 @@ permissions:
 
 jobs:
   ipa:
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS, ARM64, makera-z1-pendant-macos]
     timeout-minutes: 60
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      # A Gradle home of its own on the Mac: the heap setting below and the caches stay out of
+      # other Gradle builds of the runner's user, and persist between runs.
+      GRADLE_USER_HOME: ${{ github.workspace }}/../.gradle-makera-z1-pendant
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,20 +44,12 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            ~/.konan
-          key: ios-${{ runner.os }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: ios-${{ runner.os }}-
-
       - name: Build (unsigned)
         working-directory: ios
         run: |
           # Kotlin/Native's release link needs more heap than the project's 3 GB.
-          mkdir -p ~/.gradle && echo "org.gradle.jvmargs=-Xmx5g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
+          mkdir -p "$GRADLE_USER_HOME"
+          echo "org.gradle.jvmargs=-Xmx5g -Dfile.encoding=UTF-8" > "$GRADLE_USER_HOME/gradle.properties"
           xcodebuild -version
           xcodebuild -project iosApp.xcodeproj -target iosApp -configuration Release -sdk iphoneos \
             SYMROOT="$PWD/build" \
