@@ -1,0 +1,64 @@
+# Runs the shared module's unit tests (protocol, link, jog engine, view model, layout) on every
+# pull request and every push to main, on the project's own Kubernetes runner
+# (arc-runner-makera-z1-pendant, never a GitHub-hosted one). The runner starts empty: the job
+# installs JDK 21 and the Android SDK pieces the build needs.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a pull request replaces its running checks; pushes to main each run in full.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  tests:
+    name: Unit tests
+    runs-on: arc-runner-makera-z1-pendant
+    timeout-minutes: 30
+    env:
+      ANDROID_HOME: ${{ github.workspace }}/.android-sdk
+      # One JVM for Gradle and the Kotlin compiler, under the runner's memory limit.
+      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dkotlin.compiler.execution.strategy=in-process
+      CMDLINE_TOOLS: commandlinetools-linux-13114758_latest.zip
+      CMDLINE_TOOLS_SHA256: 7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
+      - name: Install the Android SDK (platform 35)
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/$CMDLINE_TOOLS" "https://dl.google.com/android/repository/$CMDLINE_TOOLS"
+          echo "$CMDLINE_TOOLS_SHA256  $RUNNER_TEMP/$CMDLINE_TOOLS" | sha256sum -c -
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          unzip -q "$RUNNER_TEMP/$CMDLINE_TOOLS" -d "$ANDROID_HOME/cmdline-tools"
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          sdk="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdk" --licenses > /dev/null
+          "$sdk" --install "platforms;android-35" "build-tools;35.0.0" > /dev/null
+
+      - name: Unit tests
+        working-directory: android
+        run: ./gradlew :shared:testDebugUnitTest
+
+      - name: Keep the test report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-report
+          path: android/shared/build/reports/tests/testDebugUnitTest
