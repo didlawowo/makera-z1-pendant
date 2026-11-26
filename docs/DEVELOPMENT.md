@@ -161,9 +161,13 @@ axis stops within that distance. Moves are clamped to the soft limits while the 
 **Soft limits come from the machine** (`link/SoftLimits.kt`), so a Carvera Air (X −302, Y −212, Z −121,
 the community firmware's `config2.default`) isn't held to a Z1's travel. On connect, once the machine is
 Idle with no job, the app sends `M211`; the firmware (stock Z1 and community `Robot.cpp`) answers
-`Soft endstops are Enabled,X min = -207.000,X max = -1.000,...`. The mins are the config's
-`soft_endstop.*_min`; the maxes are fixed at −1 in the firmware code. No report within 3 s: the mins from
-`config-get sd soft_endstop.*_min`, max −1; nothing at all: the Z1's. The jog clamp, typed moves, Run's
+`Soft endstops are Enabled,X min = -207.000,X max = -1.000,...`. Each piece is its own print, so it
+arrives as separate lines (`Soft endstops are Enabled`, `,X min = -302.000`, … `ok`, seen on a real
+Carvera Air); `SoftLimits.Report` collects them up to the `ok` and joins them. (0.1.11 took the first
+line alone, found no numbers and used the Z1's.) The simulator sends it split the same way;
+`--m211-one-line` sends one line. The mins are the config's `soft_endstop.*_min`; the maxes are fixed at
+−1 in the firmware code. No `ok` within 3 s: whatever lines came. No report, or one with no numbers: the
+mins from `config-get sd soft_endstop.*_min`, max −1; nothing at all: the Z1's. The jog clamp, typed moves, Run's
 bed map and its "runs past the bed" check all use them; with soft limits off in the firmware the app
 doesn't clamp either. Not used: the community firmware's `soft_endstop.rotary_y_min` (a tighter Y min with
 the 4th axis fitted), which `M211` doesn't report and the stock Z1 firmware doesn't have.

@@ -17,8 +17,10 @@ machine off. Not a faithful Smoothieware: just enough G-code for jogging, zeroin
   * Motion runs in real time at the commanded feed (G0 = axis max rate) x feed override, with a
     32-block planner queue; soft limits X -207..-1, Y -206..-1, Z -102..-1 once homed (--model air:
     the Carvera Air's X -302, Y -212, Z -121); $H ends at MPos -1 on X, Y and Z, like the real Z1.
-  * M211 answers like the firmware ("Soft endstops are Enabled,X min = -207.000,X max = -1.000,...");
-    M211 S0/S1 turns them off/on. --no-m211 makes it a plain "ok" (firmware without it).
+  * M211 answers like the firmware: "Soft endstops are Enabled", then ",X min = -207.000",
+    ",X max = -1.000", ... each as its own message (one print each, as a real Carvera Air sends it);
+    --m211-one-line sends it as one line. M211 S0/S1 turns them off/on. --no-m211 makes it a plain
+    "ok" (firmware without it).
 """
 from __future__ import annotations
 
@@ -101,6 +103,7 @@ class Machine(ProbeSim):
         self.soft = dict(SOFT)                    # --model air: SOFT_AIR
         self.soft_enabled = True                  # M211 S0/S1
         self.m211 = True                          # --no-m211: firmware without the M211 report
+        self.m211_one_line = False                # --m211-one-line: the report as one message
         self.halt_code = None
 
     # --- G-code -------------------------------------------------------------------------
@@ -151,7 +154,9 @@ class Machine(ProbeSim):
                     parts += [f"{a} min = {lo:.3f}", f"{a} max = {hi:.3f}"]
                     if not self.homed:
                         parts.append(f"{a} axis is not homed")
-                return [",".join(parts) + "\n", "ok\r\n"]
+                if self.m211_one_line:
+                    return [",".join(parts) + "\n", "ok\r\n"]
+                return [parts[0]] + ["," + p for p in parts[1:]] + ["ok\r\n"]
             if t in ("$X", "M999"):
                 if self.state == "Alarm":
                     self.state = "Idle"; self.halt_code = None
@@ -883,6 +888,7 @@ def main():
     ap.add_argument("--name", default="Makera_Z1P_SIM")
     ap.add_argument("--model", choices=["z1", "air"], default="z1", help="air: the Carvera Air's soft limits")
     ap.add_argument("--no-m211", action="store_true", help="M211 just answers ok (firmware without the report)")
+    ap.add_argument("--m211-one-line", action="store_true", help="M211's report as one message instead of one per piece")
     ap.add_argument("--port", type=int, default=P.TCP_PORT)
     ap.add_argument("--latency-ms", type=float, default=0)
     ap.add_argument("--no-broadcast", action="store_true")
@@ -906,6 +912,7 @@ def main():
     if a.model == "air":
         m.soft = dict(SOFT_AIR)
     m.m211 = not a.no_m211
+    m.m211_one_line = a.m211_one_line
     if a.boot_mesh == "empty":
         m.ghost_mesh = -1.351
     elif a.boot_mesh == "real":

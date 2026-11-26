@@ -85,7 +85,10 @@ class SoftLimitsSimTest {
         link.disconnect()
     }
 
+    /** The report split into one message per piece, as a real Air sends it (the simulator's default). */
     @Test fun carveraAirFromM211() { start(22265); airTravel(22265, "M211") }
+
+    @Test fun carveraAirFromM211OnOneLine() { start(22267, "--m211-one-line"); airTravel(22267, "M211") }
 
     @Test fun carveraAirFromTheConfig() { start(22266, "--no-m211"); airTravel(22266, "config") }
 }

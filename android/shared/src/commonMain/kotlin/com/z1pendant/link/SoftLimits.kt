@@ -4,10 +4,12 @@ package com.z1pendant.link
  * The machine's soft limits (machine coordinates), read from the firmware instead of assuming a Z1,
  * so a Carvera Air (X -302, Y -212, Z -121) gets its whole travel.
  *
- * `M211` with no S makes the firmware (stock Z1 and the community firmware, Robot.cpp) print one line:
+ * `M211` with no S makes the firmware (stock Z1 and the community firmware, Robot.cpp) report
  * `Soft endstops are Enabled,X min = -207.000,X max = -1.000,Y min = ...,Z max = -1.000` and, for an
- * axis that isn't homed, `,X axis is not homed`; a limit that's off reads `,X min is disabled`. The
- * mins are `soft_endstop.x_min`... from the config, the maxes are fixed at -1 in the firmware.
+ * axis that isn't homed, `,X axis is not homed`; a limit that's off reads `,X min is disabled`. Each
+ * piece is its own print, so it arrives as **separate lines** (`Soft endstops are Enabled`, then
+ * `,X min = -302.000`, … then `ok`; seen on a Carvera Air): [Report] collects them. The mins are
+ * `soft_endstop.x_min`... from the config, the maxes are fixed at -1 in the firmware.
  * Firmware without that report: the mins from `config-get sd soft_endstop.*_min`, max -1.
  */
 data class SoftLimits(
@@ -48,15 +50,22 @@ data class SoftLimits(
         private val head = Regex("""Soft endstops are (Enabled|Disabled)""", RegexOption.IGNORE_CASE)
         private val num = """([-+]?\d+(?:\.\d*)?)"""
 
-        /** The limits from an M211 reply line, or null for any other line. */
+        /** True for the first line of an M211 report. */
+        fun isHead(line: String) = head.containsMatchIn(line)
+
+        /**
+         * The limits from a whole M211 report (its lines joined), or null if it isn't one or says
+         * nothing about any axis (only the "Soft endstops are …" line: not a reading to trust).
+         */
         fun parse(line: String): SoftLimits? {
             val h = head.find(line) ?: return null
+            if (!Regex("""[XYZ] m(in|ax) (=|is disabled)""").containsMatchIn(line)) return null
             val min = HashMap<Char, Double?>(); val max = HashMap<Char, Double?>()
             for (a in "XYZ") {
                 min[a] = Regex("""$a min = $num""").find(line)?.groupValues?.get(1)?.toDoubleOrNull()
                 max[a] = Regex("""$a max = $num""").find(line)?.groupValues?.get(1)?.toDoubleOrNull()
             }
-            // An axis it says nothing about (cut-off line): keep the Z1's rather than "no limit".
+            // An axis it says nothing about (cut-off report): keep the Z1's rather than "no limit".
             for (a in "XYZ") {
                 if (min[a] == null && !line.contains("$a min is disabled")) min[a] = Z1.min[a]
                 if (max[a] == null && !line.contains("$a max is disabled")) max[a] = Z1.max[a]
@@ -72,6 +81,30 @@ data class SoftLimits(
                 max = mapOf('X' to FIRMWARE_MAX, 'Y' to FIRMWARE_MAX, 'Z' to FIRMWARE_MAX),
                 source = if (xMin == null && yMin == null && zMin == null) "built-in" else "config",
             )
+    }
+
+    /**
+     * Collects an M211 report line by line: from the "Soft endstops are …" line up to the firmware's
+     * `ok` (or `error`). Works whether the firmware sends it as one line or as one line per piece.
+     */
+    class Report {
+        private val lines = ArrayList<String>()
+        /** Seen the first line. */
+        val started get() = lines.isNotEmpty()
+
+        /** Feeds one received line; true once the report is complete. */
+        fun add(line: String): Boolean {
+            if (!started) {
+                if (isHead(line)) lines += line
+                return false
+            }
+            if (line.startsWith("ok", true) || line.startsWith("error", true)) return true
+            lines += line
+            return false
+        }
+
+        /** The limits from what came in (complete or not), or null if nothing usable did. */
+        fun result(): SoftLimits? = if (started) parse(lines.joinToString(",")) else null
     }
 }
 

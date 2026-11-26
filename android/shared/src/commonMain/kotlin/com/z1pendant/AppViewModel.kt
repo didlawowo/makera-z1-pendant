@@ -475,15 +475,19 @@ class AppViewModel(private val platform: Platform) : ViewModel() {
      */
     private suspend fun readSoftLimits() {
         link.status.first { it != null && it.job == null && it.isIdle }
-        val got = kotlinx.coroutines.withTimeoutOrNull(3000) {
+        // The report comes as several lines (see SoftLimits): collect up to the "ok". If the "ok"
+        // never shows, use what did come in.
+        val report = SoftLimits.Report()
+        kotlinx.coroutines.withTimeoutOrNull(3000) {
             kotlinx.coroutines.coroutineScope {
                 val answer = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                    link.messages.first { SoftLimits.parse(it) != null }
+                    link.messages.first { report.add(it) }
                 }
                 link.sendLine(SoftLimits.COMMAND)
-                SoftLimits.parse(answer.await())
+                answer.await()
             }
-        } ?: SoftLimits.fromConfig(
+        }
+        val got = report.result() ?: SoftLimits.fromConfig(
             run.readConfig("soft_endstop.x_min"), run.readConfig("soft_endstop.y_min"),
             run.readConfig("soft_endstop.z_min"), null,
         )
