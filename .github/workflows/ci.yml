@@ -25,7 +25,8 @@ jobs:
     timeout-minutes: 30
     env:
       ANDROID_HOME: ${{ github.workspace }}/.android-sdk
-      # One JVM for Gradle and the Kotlin compiler, under the runner's memory limit.
+      # The Kotlin compiler runs inside Gradle's single-use daemon (-Xmx3g, gradle.properties), so
+      # the build stays at two JVMs (Gradle, tests) under the runner's memory limit.
       GRADLE_OPTS: -Dorg.gradle.daemon=false -Dkotlin.compiler.execution.strategy=in-process
       CMDLINE_TOOLS: commandlinetools-linux-13114758_latest.zip
       CMDLINE_TOOLS_SHA256: 7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee
@@ -58,7 +59,7 @@ jobs:
 
       - name: Keep the test report
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-report
           path: android/shared/build/reports/tests/testDebugUnitTest
