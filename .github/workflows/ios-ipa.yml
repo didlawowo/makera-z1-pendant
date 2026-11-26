@@ -1,9 +1,14 @@
-# Builds the iPhone/iPad app on GitHub's Macs and attaches it to the release as an unsigned .ipa,
+# Builds the iPhone/iPad app on the project's own Mac (an Apple Silicon M1 registered as a
+# self-hosted runner with the label makera-z1-pendant-macos) and attaches it to the release as an unsigned .ipa,
 # so people without a Mac can install it from Windows with Sideloadly or AltStore (they sign it
 # with their own Apple ID; see "iPhone without a Mac" in the README).
 #
 # Runs by itself when a release is published. To add the .ipa to an existing release:
 #   gh workflow run ios-ipa.yml -f tag=v0.1.8
+#
+# Never triggered by a pull request: code from a fork never runs on that Mac. The Mac needs Xcode,
+# the GitHub CLI (brew install gh) and zip, and must stay awake on AC power (sudo pmset -c sleep 0),
+# or the job queues.
 name: iPhone app (.ipa)
 
 on:
@@ -20,7 +25,7 @@ permissions:
 
 jobs:
   ipa:
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS, ARM64, makera-z1-pendant-macos]
     timeout-minutes: 60
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
@@ -47,7 +52,10 @@ jobs:
         working-directory: ios
         run: |
           # Kotlin/Native's release link needs more heap than the project's 3 GB.
-          mkdir -p ~/.gradle && echo "org.gradle.jvmargs=-Xmx5g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
+          # The Mac keeps ~/.gradle between runs: add the line once, not on every run.
+          line="org.gradle.jvmargs=-Xmx5g -Dfile.encoding=UTF-8"
+          mkdir -p ~/.gradle && touch ~/.gradle/gradle.properties
+          grep -qxF "$line" ~/.gradle/gradle.properties || echo "$line" >> ~/.gradle/gradle.properties
           xcodebuild -version
           xcodebuild -project iosApp.xcodeproj -target iosApp -configuration Release -sdk iphoneos \
             SYMROOT="$PWD/build" \
