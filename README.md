@@ -94,6 +94,7 @@ tap a jog pad, run your own hotkeys, and see live positions, all over Wi-Fi with
 - **Tablets** (iPad, Android tablets): a bigger readout, and the dial / jog pad resize around your
   hotkeys. Turn the tablet sideways for a side-by-side layout with everything on screen at once:
   readout, hotkeys and the stop buttons on the left, steps and a big dial or jog pad on the right.
+  A window too short for it (a phone sideways) keeps the upright layout, which scrolls.
 - **Soft-limit protection**: jogs are clamped and typed moves refused before they reach the
   machine's soft limits, so they don't trip an alarm. The limits are read from the machine when it
   connects, so a Carvera Air gets its full travel.

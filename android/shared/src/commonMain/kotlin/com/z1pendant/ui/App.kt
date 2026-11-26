@@ -77,7 +77,7 @@ fun App(vm: AppViewModel) {
         vm.onMainScreen = !(editorOpen || settings || console || probing || files || runActive || runPick)
         // Windows 600 dp or wider (iPad, Android tablet) get the wide layout; see LocalWide.
         androidx.compose.runtime.CompositionLocalProvider(LocalWide provides (maxWidth >= 600.dp),
-            LocalLandscape provides (maxWidth >= 840.dp && maxWidth > maxHeight)) {
+            LocalLandscape provides sideBySideLayout(maxWidth.value, maxHeight.value)) {
             when {
                 editorOpen -> HotkeyEditor(vm, editing) { editorOpen = false; editing = null; vm.capture.value = null }
                 settings -> SettingsScreen(vm) { settings = false }
